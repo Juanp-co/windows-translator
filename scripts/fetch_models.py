@@ -71,7 +71,7 @@ def download(urls: list[str]) -> bytes:
     last: Exception | None = None
     for url in urls:
         try:
-            print(f"  ↓ {url}")
+            print(f"  [dl] {url}")
             return _get(url)
         except Exception as exc:
             print(f"    falló: {exc}")
@@ -145,17 +145,17 @@ def main() -> int:
     for src, tgt in PAIRS:
         dest = MODELS / f"{src}_{tgt}"
         if (dest / "model.bin").exists():
-            print(f"✓ {src}->{tgt} ya está en {dest}")
+            print(f"[ok] {src}->{tgt} ya está en {dest}")
             continue
 
-        print(f"↓ {src}->{tgt}")
+        print(f"[dl] {src}->{tgt}")
         blob = download(find_urls(src, tgt))
-        print(f"  {len(blob) / 1_000_000:.0f} MB descargados, extrayendo…")
+        print(f"  {len(blob) / 1_000_000:.0f} MB descargados, extrayendo...")
 
         with zipfile.ZipFile(io.BytesIO(blob)) as zf:
             flatten(zf, dest)
         verify(dest)
-        print(f"✓ {dest}")
+        print(f"[ok] {dest}")
 
     total = sum(f.stat().st_size for f in MODELS.rglob("*") if f.is_file())
     print(f"\nTotal en disco: {total / 1_000_000:.0f} MB")

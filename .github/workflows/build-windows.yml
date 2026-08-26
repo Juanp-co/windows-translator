@@ -12,6 +12,18 @@ jobs:
   build:
     runs-on: windows-latest
 
+    # El env va a NIVEL DE JOB a propósito.
+    # El contexto `secrets` no está permitido dentro de un `if:` de paso —
+    # GitHub rechaza el workflow entero y el run muere sin arrancar jobs.
+    # El env de job sí es visible en `if:`, así que se compara contra env.PFX.
+    env:
+      PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
+      PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+      # La consola del runner usa cp1252: sin esto, imprimir cualquier carácter
+      # fuera de ese juego revienta con UnicodeEncodeError.
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -57,10 +69,7 @@ jobs:
       # Secreto SIGNING_PFX_PASSWORD: su contraseña.
       # Si no están definidos, el paso se salta y el build sigue sin firmar.
       - name: Firmar
-        if: ${{ secrets.SIGNING_PFX_BASE64 != '' }}
-        env:
-          PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
-          PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        if: ${{ env.PFX != '' }}
         shell: pwsh
         run: |
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
@@ -90,10 +99,7 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
 
       - name: Firmar el instalador
-        if: ${{ secrets.SIGNING_PFX_BASE64 != '' }}
-        env:
-          PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
-          PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        if: ${{ env.PFX != '' }}
         shell: pwsh
         run: |
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
