@@ -25,6 +25,7 @@ Source: "dist\traslatetool\*"; DestDir: "{app}"; Flags: recursesubdirs createall
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\traslatetool.exe"
+Name: "{group}\{#AppName} (diagnostico)"; Filename: "{app}\traslatetool-debug.exe"
 Name: "{userstartup}\{#AppName}"; Filename: "{app}\traslatetool.exe"
 
 [Run]

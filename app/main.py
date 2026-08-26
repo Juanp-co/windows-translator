@@ -4,26 +4,33 @@ from __future__ import annotations
 
 import sys
 import threading
+import traceback
 
-from PIL import Image, ImageDraw
-from pynput import keyboard
+from app.log import setup as setup_log, log_path
 
-from app import popup, selection
-from app.config import HOTKEY_POPUP, HOTKEY_REPLACE
-from app.translator import detect_lang, translate
+log = setup_log()
 
 _busy = threading.Lock()
 
 
-def _run(fn) -> None:
-    """Ejecuta `fn` en un hilo, ignorando disparos mientras uno está en curso."""
+def _run(fn, nombre: str) -> None:
+    """Ejecuta `fn` en un hilo, ignorando disparos mientras uno esta en curso."""
+    log.info("atajo disparado: %s", nombre)
+
     def wrapper() -> None:
+        from app import popup
         if not _busy.acquire(blocking=False):
+            log.warning("%s ignorado: hay otro en curso", nombre)
             return
         try:
             fn()
-        except Exception as exc:  # nunca dejamos morir el hilo del atajo
-            popup.show(f"{type(exc).__name__}: {exc}", "Error")
+        except Exception as exc:
+            log.error("%s fallo: %s", nombre, exc)
+            log.error(traceback.format_exc())
+            try:
+                popup.show(f"{type(exc).__name__}: {exc}", "Error")
+            except Exception:
+                pass
         finally:
             _busy.release()
 
@@ -31,71 +38,118 @@ def _run(fn) -> None:
 
 
 def on_popup() -> None:
-    """Ctrl+Alt+R — traduce la selección al español y la muestra."""
+    """Ctrl+Alt+R - traduce la seleccion y la muestra en un popup."""
+    from app import popup, selection
+    from app.translator import detect_lang, translate
+
     text = selection.read_selection()
+    log.info("seleccion leida: %d caracteres", len(text))
     if not text.strip():
         popup.show("No hay texto seleccionado.", "traslatetool")
         return
 
     src = detect_lang(text)
     tgt = "es" if src == "en" else "en"
+    log.info("traduciendo %s->%s", src, tgt)
     result = translate(text, src, tgt)
+    log.info("traduccion lista: %d caracteres", len(result))
 
     selection.restore_clipboard()
-    popup.show(result, f"Traducción {src.upper()} → {tgt.upper()}")
+    popup.show(result, f"Traduccion {src.upper()} -> {tgt.upper()}")
 
 
 def on_replace() -> None:
-    """Ctrl+Alt+E — traduce la selección al inglés y la escribe encima."""
+    """Ctrl+Alt+Y - traduce la seleccion y la escribe encima."""
+    from app import popup, selection
+    from app.translator import detect_lang, translate
+
     text = selection.read_selection()
+    log.info("seleccion leida: %d caracteres", len(text))
     if not text.strip():
         popup.show("No hay texto seleccionado.", "traslatetool")
         return
 
     src = detect_lang(text)
     tgt = "en" if src == "es" else "es"
+    log.info("traduciendo %s->%s", src, tgt)
     result = translate(text, src, tgt)
     selection.replace_selection(result)
+    log.info("reemplazo hecho")
 
 
-def _icon_image() -> Image.Image:
+def _icon_image():
+    from PIL import Image, ImageDraw
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.ellipse((2, 2, 62, 62), fill=(37, 99, 235, 255))
-    d.text((20, 18), "T", fill="white")
+    d.text((26, 22), "T", fill="white")
     return img
 
 
 def main() -> int:
-    import pystray
+    from app import popup
+    from app.config import HOTKEY_POPUP, HOTKEY_REPLACE
 
-    hotkeys = keyboard.GlobalHotKeys({
-        HOTKEY_POPUP: lambda: _run(on_popup),
-        HOTKEY_REPLACE: lambda: _run(on_replace),
-    })
-    hotkeys.start()
+    log.info("atajos configurados: popup=%s replace=%s", HOTKEY_POPUP, HOTKEY_REPLACE)
 
-    def quit_app(icon, _item) -> None:
-        icon.stop()
-        hotkeys.stop()
-        popup.stop_loop()
+    # --- atajos globales ----------------------------------------------------
+    try:
+        from pynput import keyboard
+        hotkeys = keyboard.GlobalHotKeys({
+            HOTKEY_POPUP: lambda: _run(on_popup, "popup"),
+            HOTKEY_REPLACE: lambda: _run(on_replace, "replace"),
+        })
+        hotkeys.start()
+        log.info("listener de atajos ACTIVO")
+    except Exception:
+        log.critical("no se pudieron registrar los atajos")
+        log.critical(traceback.format_exc())
+        return 2
 
-    icon = pystray.Icon(
-        "traslatetool",
-        _icon_image(),
-        "traslatetool  ·  Ctrl+Alt+R popup  ·  Ctrl+Alt+E reemplazar",
-        menu=pystray.Menu(
-            pystray.MenuItem("Traducir selección (popup)", lambda: _run(on_popup)),
-            pystray.MenuItem("Reemplazar selección", lambda: _run(on_replace)),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Salir", quit_app),
-        ),
-    )
-    threading.Thread(target=icon.run, daemon=True).start()
+    # --- icono de bandeja ---------------------------------------------------
+    # No es critico: si falla, la app sigue con los atajos funcionando.
+    icon = None
+    try:
+        import pystray
+        def quit_app(ic, _item) -> None:
+            log.info("salida solicitada desde la bandeja")
+            ic.stop()
+            hotkeys.stop()
+            popup.stop_loop()
 
-    popup.start_loop()  # bloquea hasta que se sale
+        icon = pystray.Icon(
+            "traslatetool", _icon_image(),
+            "traslatetool | Ctrl+Alt+R popup | Ctrl+Alt+Y reemplazar",
+            menu=pystray.Menu(
+                pystray.MenuItem("Traducir seleccion (popup)", lambda: _run(on_popup, "popup")),
+                pystray.MenuItem("Reemplazar seleccion", lambda: _run(on_replace, "replace")),
+                pystray.MenuItem("Ver log", lambda: __import__("os").startfile(log_path())),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Salir", quit_app),
+            ),
+        )
+        threading.Thread(target=icon.run, daemon=True).start()
+        log.info("icono de bandeja lanzado")
+    except Exception:
+        log.error("fallo el icono de bandeja (los atajos siguen activos)")
+        log.error(traceback.format_exc())
+
+    # --- bucle de tkinter (hilo principal) ----------------------------------
+    try:
+        log.info("arrancando bucle de tkinter")
+        popup.start_loop()
+    except Exception:
+        log.critical("fallo el bucle de tkinter")
+        log.critical(traceback.format_exc())
+        return 3
+
+    log.info("salida limpia")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        log.critical("excepcion no capturada:\n%s", traceback.format_exc())
+        sys.exit(1)

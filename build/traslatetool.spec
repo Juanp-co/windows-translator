@@ -41,8 +41,24 @@ exe = EXE(
     console=False,          # sin ventana de consola: app de bandeja
 )
 
+# Segundo ejecutable, identico pero con consola. Comparte el mismo Analysis,
+# asi que no aumenta el tamano del bundle de forma apreciable: sirve para ver
+# el traceback en vivo cuando la version silenciosa muere sin decir nada.
+exe_debug = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="traslatetool-debug",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,
+)
+
 coll = COLLECT(
     exe,
+    exe_debug,
     a.binaries,
     a.datas,
     strip=False,
