@@ -9,3 +9,4 @@ build/traslatetool/
 signing/*.pfx
 signing/key.pem
 signing/pfx.base64.txt
+dist-release/
