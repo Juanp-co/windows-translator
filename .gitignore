@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+models/
+dist/
+build/*.toc
+build/traslatetool/
+
+signing/*.pfx
+signing/key.pem

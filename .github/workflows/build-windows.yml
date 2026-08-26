@@ -1,0 +1,109 @@
+name: Build Windows
+
+# PyInstaller no compila cruzado y los contenedores Windows necesitan un host
+# Windows, así que este runner es el sustituto de "compilar desde el Mac".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # 3.11: wheels estables de ctranslate2 y sentencepiece en Windows.
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Descargar modelos Argos
+        run: python scripts/fetch_models.py
+
+      - name: Comprobar que la traducción funciona
+        shell: bash
+        run: |
+          python -c "
+          from app.translator import translate
+          a = translate('hola, tengo una reunión mañana', 'es', 'en')
+          b = translate('the server is not responding', 'en', 'es')
+          print('ES->EN:', a)
+          print('EN->ES:', b)
+          assert a.strip() and b.strip(), 'traducción vacía'
+          "
+
+      - name: Compilar
+        run: pyinstaller build/traslatetool.spec --noconfirm
+
+      # --- Firma autofirmada -------------------------------------------------
+      # Secreto SIGNING_PFX_BASE64: el .pfx en base64.
+      # Secreto SIGNING_PFX_PASSWORD: su contraseña.
+      # Si no están definidos, el paso se salta y el build sigue sin firmar.
+      - name: Firmar
+        if: ${{ env.PFX != '' }}
+        env:
+          PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
+            [Convert]::FromBase64String($env:PFX))
+
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1 -ExpandProperty FullName
+          Write-Host "signtool: $signtool"
+
+          # Se firma el .exe y todas las DLL propias del bundle.
+          $targets = Get-ChildItem dist\traslatetool -Recurse -Include *.exe
+
+          & $signtool sign `
+            /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:PFX_PASSWORD" `
+            /fd SHA256 /td SHA256 `
+            /tr http://timestamp.digicert.com `
+            $targets.FullName
+
+          & $signtool verify /pa /v dist\traslatetool\traslatetool.exe
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
+
+      - name: Instalador Inno Setup
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Firmar el instalador
+        if: ${{ env.PFX != '' }}
+        env:
+          PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
+            [Convert]::FromBase64String($env:PFX))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign `
+            /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:PFX_PASSWORD" `
+            /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com `
+            dist\traslatetool-setup.exe
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traslatetool-windows
+          path: |
+            dist/traslatetool-setup.exe
+            signing/cert.cer
+          retention-days: 30
