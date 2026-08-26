@@ -17,17 +17,40 @@ Say "  traslatetool - instalador" Cyan
 Say "  =========================" Cyan
 Say ""
 
-# --- 1. Comprobar permisos --------------------------------------------------
+# --- 1. Elevar a administrador si hace falta ---------------------------------
+# Importar el certificado en LocalMachine exige admin. Si no lo somos, este
+# mismo script se relanza elevado y la instancia actual termina.
 $admin = ([Security.Principal.WindowsPrincipal] `
           [Security.Principal.WindowsIdentity]::GetCurrent()
          ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $admin) {
-    Say "  ERROR: hacen falta permisos de administrador." Red
-    Say "  Cierra esto y haz clic derecho en INSTALAR.bat -> Ejecutar como administrador." Yellow
-    Read-Host "`n  Pulsa Enter para salir"
-    exit 1
+    # Ejecutado via `irm ... | iex` no hay fichero que relanzar.
+    if ([string]::IsNullOrEmpty($PSCommandPath)) {
+        Say ""
+        Say "  Hacen falta permisos de administrador." Red
+        Say "  Abre PowerShell como administrador y vuelve a pegar el comando." Yellow
+        exit 1
+    }
+    Say "  Solicitando permisos de administrador..." Yellow
+    try {
+        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', "`"$PSCommandPath`""
+        )
+    } catch {
+        Say ""
+        Say "  No se pudo elevar (aviso de Windows rechazado?)." Red
+        Say "  Prueba: clic derecho en INSTALAR.bat -> Ejecutar como administrador." Yellow
+        Read-Host "`n  Pulsa Enter para salir"
+        exit 1
+    }
+    exit 0
 }
+
+# Los archivos copiados desde un USB pueden venir marcados como bloqueados.
+Get-ChildItem $PSScriptRoot -Filter *.ps1 -ErrorAction SilentlyContinue |
+    Unblock-File -ErrorAction SilentlyContinue
 
 # TLS 1.2: Windows 10 antiguo negocia TLS 1.0 por defecto y GitHub lo rechaza.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

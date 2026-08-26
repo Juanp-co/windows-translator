@@ -1,13 +1,27 @@
 @echo off
-REM traslatetool - lanzador. Doble clic y listo.
-REM Se auto-eleva a administrador: importar el certificado lo exige.
+title traslatetool - instalador
+cd /d "%~dp0"
 
-net session >nul 2>&1
-if %errLevel% neq 0 (
-    echo Solicitando permisos de administrador...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    exit /b
+echo.
+echo   traslatetool - instalador
+echo   =========================
+echo.
+echo   Iniciando... (aceptar el aviso de Windows si aparece)
+echo.
+
+REM La elevacion la hace instalar.ps1, no este .bat: PowerShell reporta
+REM los errores en vez de cerrar la ventana en silencio.
+REM -ExecutionPolicy Bypass: Windows no ejecuta .ps1 sin firmar por defecto.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0instalar.ps1"
+set RC=%errorlevel%
+
+if not "%RC%"=="0" (
+    echo.
+    echo   El instalador termino con codigo %RC%.
+    echo   Alternativa manual:
+    echo     https://github.com/Juanp-co/windows-translator/releases/latest
+    echo.
 )
 
-REM -ExecutionPolicy Bypass: por defecto Windows no ejecuta .ps1 sin firmar.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0instalar.ps1"
+REM pause SIEMPRE: sin esto, cualquier fallo cierra la ventana sin que se lea.
+pause
