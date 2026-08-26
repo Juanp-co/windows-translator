@@ -26,6 +26,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # La clave incluye el hash del script: si cambian las versiones fijadas
+      # en PINNED, la caché se invalida sola.
+      - name: Caché de modelos
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: argos-${{ hashFiles('scripts/fetch_models.py') }}
+
       - name: Descargar modelos Argos
         run: python scripts/fetch_models.py
 
@@ -49,7 +57,7 @@ jobs:
       # Secreto SIGNING_PFX_PASSWORD: su contraseña.
       # Si no están definidos, el paso se salta y el build sigue sin firmar.
       - name: Firmar
-        if: ${{ env.PFX != '' }}
+        if: ${{ secrets.SIGNING_PFX_BASE64 != '' }}
         env:
           PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
           PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
@@ -82,7 +90,7 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
 
       - name: Firmar el instalador
-        if: ${{ env.PFX != '' }}
+        if: ${{ secrets.SIGNING_PFX_BASE64 != '' }}
         env:
           PFX: ${{ secrets.SIGNING_PFX_BASE64 }}
           PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
