@@ -1,0 +1,223 @@
+===============================================================================
+ traslatetool - INSTRUCCIONES PARA CLAUDE CODE EN WINDOWS
+===============================================================================
+
+COMO USAR ESTE FICHERO
+  Abre una terminal en Windows, ejecuta "claude" y pegale este fichero entero,
+  o dile:  "lee D:\PARA-CLAUDE-EN-WINDOWS.txt y sigue las instrucciones"
+  (cambia D: por la letra que tenga esta memoria).
+
+
+-------------------------------------------------------------------------------
+ CONTEXTO EN UNA FRASE
+-------------------------------------------------------------------------------
+Traductor global ES<->EN para Windows, offline, que corre en segundo plano.
+El motor de traduccion FUNCIONA y esta verificado. Lo que NO funciona son los
+atajos de teclado: el usuario instalo, pulso Ctrl+Alt+R sobre texto en el Bloc
+de notas y no ocurrio absolutamente nada. Ni popup, ni error, ni traza.
+
+Repo:  https://github.com/Juanp-co/windows-translator
+Hay un CLAUDE.md en la raiz con el contexto completo. Se carga solo.
+
+
+-------------------------------------------------------------------------------
+ POR QUE ESTAS INSTRUCCIONES EXISTEN  (leelo, importa)
+-------------------------------------------------------------------------------
+Todo el proyecto se desarrollo DESDE UN MAC, donde es imposible ejecutar este
+codigo. Los atajos, el portapapeles y el popup son especificos de Windows y
+solo se pudieron validar leyendolos. Eso produjo tres fallos que unicamente
+aparecieron al ejecutar en Windows:
+
+  1. %errLevel% en vez de %errorlevel%  -> el .bat moria sin mostrar nada
+  2. UnicodeEncodeError                 -> la consola es cp1252 y se imprimia "->"
+  3. if: ${{ secrets.X }} en un paso    -> contexto no permitido en Actions
+
+TU SI PUEDES EJECUTAR EL CODIGO. Usalo. No valides leyendo: ejecuta, mira el
+log, y confirma con hechos. Esa es la razon de ser de esta sesion.
+
+
+-------------------------------------------------------------------------------
+ PASO 1 - CLONAR Y PREPARAR EL ENTORNO
+-------------------------------------------------------------------------------
+  git clone https://github.com/Juanp-co/windows-translator
+  cd windows-translator
+  py -3.11 -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
+  python scripts\fetch_models.py
+
+NOTAS
+  - Python 3.11 a proposito: ctranslate2 y sentencepiece tienen wheels
+    estables ahi. Con 3.13 puede no haber wheel para Windows.
+  - fetch_models.py descarga ~190 MB. Si da 403, es el User-Agent (ya
+    contemplado en el script). Si tarda mucho, es normal.
+  - Si Activate.ps1 se niega a ejecutarse:
+      Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+
+-------------------------------------------------------------------------------
+ PASO 2 - COMPROBAR QUE EL MOTOR TRADUCE
+-------------------------------------------------------------------------------
+  python -c "from app.translator import translate; print(translate('hola, necesito revisar el informe','es','en'))"
+
+Esperado: una frase en ingles. Si esto falla, el problema es de modelos o
+dependencias, NO de atajos. Arreglalo antes de seguir.
+
+
+-------------------------------------------------------------------------------
+ PASO 3 - EJECUTAR DESDE FUENTE  (aqui es donde se resuelve el problema)
+-------------------------------------------------------------------------------
+  python -m app.main
+
+Esto arranca la app con consola visible. Es el ciclo rapido: segundos, frente
+a los 6 minutos que tarda el build de CI.
+
+QUE DEBERIAS VER EN LA CONSOLA
+  arranque | python=3.11.x | frozen=False
+  atajos configurados: popup=<ctrl>+<alt>+r replace=<ctrl>+w
+  listener de atajos ACTIVO          <- CLAVE: si no sale, los atajos no van
+  listener de raton ACTIVO           <- popup automatico
+  icono de bandeja lanzado
+  arrancando bucle de tkinter
+
+Deja esa ventana abierta y prueba en el Bloc de notas. Cada disparo de atajo
+escribe "atajo disparado: ..." en la consola. Si pulsas y NO aparece esa
+linea, el problema esta en el registro del atajo, no en la traduccion.
+
+
+-------------------------------------------------------------------------------
+ PASO 4 - DIAGNOSTICO DEL FALLO DE ATAJOS
+-------------------------------------------------------------------------------
+Hipotesis, sin verificar. El log las distingue:
+
+  A) La app ni siquiera corria.
+     Comprobar traslatetool.exe en el Administrador de tareas y si hay icono
+     azul en la bandeja. La version compilada usa console=False: cualquier
+     excepcion al arrancar la mata EN SILENCIO.
+
+  B) tk.Tk() falla dentro del bundle de PyInstaller (tcl/tk no empaquetado).
+     popup.start_loop() corre en el hilo principal -> revienta -> proceso
+     muerto sin rastro.
+
+  C) pystray.Icon.run() lanzado en un hilo secundario. En Windows puede
+     necesitar el hilo principal para su bomba de mensajes.
+
+  D) El listener de pynput no llega a registrarse.
+     Buscar "listener de atajos ACTIVO" en el log.
+
+  E) Conflicto de combinacion con otra app ya instalada.
+
+LOG (tambien lo genera la version instalada):
+  %LOCALAPPDATA%\traslatetool\traslatetool.log
+
+  Get-Content $env:LOCALAPPDATA\traslatetool\traslatetool.log -Tail 50 -Wait
+
+Hay tambien un traslatetool-debug.exe con consola dentro de la carpeta de
+instalacion, por si prefieres depurar el binario en vez del fuente.
+
+
+-------------------------------------------------------------------------------
+ PASO 5 - COMPORTAMIENTO ESPERADO (los ultimos cambios)
+-------------------------------------------------------------------------------
+POPUP INGLES -> ESPANOL: AUTOMATICO, sin pulsar nada
+  Seleccionas con el raton un texto en ingles (pulsar, arrastrar, soltar) y
+  sale un popup con la traduccion al espanol.
+  Implementado en app/watcher.py. Filtros para no dispararse de mas:
+     minimo 15 caracteres / 3 palabras
+     arrastre minimo 12 px (un clic no cuenta)
+     debounce 1,5 s
+     solo si detecta ingles
+     ignora reseleccion del mismo texto
+  Se apaga desde el menu de la bandeja.
+  Ctrl+Alt+R hace lo mismo manualmente (respaldo).
+
+REEMPLAZO ESPANOL -> INGLES: Ctrl+W
+  Seleccionas texto en espanol, pulsas Ctrl+W, y lo sustituye por el ingles.
+
+  *** ADVERTENCIA VERIFICADA EN EL FUENTE DE PYNPUT ***
+  GlobalHotKeys.__init__ pasa **kwargs a Listener y NO activa supresion.
+  Por tanto Ctrl+W disparara la traduccion Y ADEMAS cerrara la pestana o
+  ventana de la app en primer plano (navegador, VS Code, Explorador).
+  pynput no puede interceptarla selectivamente: su "suppress" es del listener
+  entero y bloquearia toda la escritura.
+
+  Si en la practica resulta inviable, el sustituto es <ctrl>+<alt>+w:
+  una linea en app/config.py -> HOTKEY_REPLACE.
+  CONSULTA AL USUARIO antes de cambiarlo; lo pidio explicitamente asi.
+
+
+-------------------------------------------------------------------------------
+ PASO 6 - PLAN DE PRUEBAS
+-------------------------------------------------------------------------------
+Con "python -m app.main" corriendo y el Bloc de notas abierto:
+
+  [ ] 1. Escribe:  The deployment failed because the database timed out.
+         Seleccionalo con el raton arrastrando.
+         ESPERADO: popup automatico con la traduccion al espanol.
+
+  [ ] 2. Mismo texto, pulsa Ctrl+Alt+R.
+         ESPERADO: popup manual con la traduccion.
+
+  [ ] 3. Escribe:  Necesito revisar el informe antes de la reunion.
+         Seleccionalo y pulsa Ctrl+W.
+         ESPERADO: se borra y aparece en ingles.
+         COMPRUEBA TAMBIEN: si estabas en un navegador, se cerro la pestana?
+
+  [ ] 4. Selecciona una sola palabra corta.
+         ESPERADO: NO sale popup (filtro de longitud).
+
+  [ ] 5. Selecciona texto ya en espanol.
+         ESPERADO: NO sale popup automatico (solo actua con ingles).
+
+  [ ] 6. Menu de la bandeja -> desactivar "Popup automatico al seleccionar".
+         ESPERADO: deja de salir; Ctrl+Alt+R sigue funcionando.
+
+La primera traduccion tarda ~2 s (carga el modelo). Las siguientes ~0,15 s.
+
+
+-------------------------------------------------------------------------------
+ PASO 7 - CUANDO FUNCIONE
+-------------------------------------------------------------------------------
+  git add -A
+  git commit -m "fix: <lo que fuera>"
+  git push
+
+El push dispara el build en un runner Windows, firma el .exe y publica una
+release. Tarda ~6 min. Luego el usuario reinstala con:
+
+  https://github.com/Juanp-co/windows-translator/releases/latest
+
+
+-------------------------------------------------------------------------------
+ INSTALAR LA VERSION YA COMPILADA  (si prefieres empezar por ahi)
+-------------------------------------------------------------------------------
+En esta memoria: clic derecho en INSTALAR.bat -> Ejecutar como administrador.
+Descarga la release, importa el certificado autofirmado e instala.
+
+La release actual (build 11) YA INCLUYE el popup automatico y Ctrl+W.
+
+Alternativa, en PowerShell como administrador:
+  irm https://raw.githubusercontent.com/Juanp-co/windows-translator/main/installer/instalar.ps1 | iex
+
+
+-------------------------------------------------------------------------------
+ COSAS QUE YA COSTARON TIEMPO - NO REHACERLAS
+-------------------------------------------------------------------------------
+  - Modelos Argos FIJADOS a v1.0 en ambas direcciones. El paquete es_en-1_9
+    usa BPE de subword-nmt en vez de SentencePiece y pesa 285 MB. La v1.0 usa
+    SentencePiece y pesa 87 MB. fetch_models.py valida el formato.
+  - NO usar argostranslate: arrastra stanza -> PyTorch -> bundle de ~2 GB.
+    Se usan ctranslate2 + sentencepiece directamente.
+  - argos-net.com devuelve 403 sin User-Agent de navegador.
+  - La consola de Windows es cp1252: no imprimir simbolos fuera de ese juego.
+  - PyInstaller --onedir, no --onefile (son ~300 MB).
+
+
+-------------------------------------------------------------------------------
+ QUE REPORTAR AL USUARIO
+-------------------------------------------------------------------------------
+  1. Causa raiz real del fallo de atajos (cual de las hipotesis era, o cual
+     no estaba en la lista).
+  2. Resultado de cada punto del plan de pruebas.
+  3. Si Ctrl+W cierra pestanas en la practica, y si conviene cambiarlo.
+===============================================================================
