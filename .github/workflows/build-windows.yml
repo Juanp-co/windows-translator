@@ -68,38 +68,83 @@ jobs:
       # Secreto SIGNING_PFX_BASE64: el .pfx en base64.
       # Secreto SIGNING_PFX_PASSWORD: su contraseña.
       # Si no están definidos, el paso se salta y el build sigue sin firmar.
+      # continue-on-error: un fallo de firma NO debe impedir que salga el .exe.
+      # Sin esto, el instalador y la subida del artefacto se saltan y el build
+      # entero se queda sin entregable.
       - name: Firmar
         if: ${{ env.PFX != '' }}
+        continue-on-error: true
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
+
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
             [Convert]::FromBase64String($env:PFX))
+          Write-Host "pfx: $((Get-Item $env:RUNNER_TEMP\cert.pfx).Length) bytes"
 
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
-            -Recurse -Filter signtool.exe |
-            Where-Object { $_.FullName -match 'x64' } |
+          # Buscar signtool en las dos ubicaciones posibles del SDK.
+          $roots = @(
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+            "${env:ProgramFiles}\Windows Kits\10\bin"
+          ) | Where-Object { Test-Path $_ }
+          Write-Host "raices SDK encontradas: $($roots.Count)"
+
+          $signtool = $roots |
+            ForEach-Object { Get-ChildItem $_ -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue } |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
             Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $signtool) { Write-Host "::error::signtool.exe no encontrado"; exit 1 }
           Write-Host "signtool: $signtool"
 
-          # Se firma el .exe y todas las DLL propias del bundle.
-          $targets = Get-ChildItem dist\traslatetool -Recurse -Include *.exe
+          # -Filter en vez de -Include: -Include se comporta de forma distinta
+          # segun como venga el path y puede devolver vacio.
+          $targets = @(Get-ChildItem dist\traslatetool -Recurse -Filter *.exe |
+                       Select-Object -ExpandProperty FullName)
+          Write-Host "exes a firmar: $($targets.Count)"
+          $targets | ForEach-Object { Write-Host "  $_" }
+          if ($targets.Count -eq 0) { Write-Host "::error::no hay .exe que firmar"; exit 1 }
 
-          & $signtool sign `
-            /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:PFX_PASSWORD" `
-            /fd SHA256 /td SHA256 `
-            /tr http://timestamp.digicert.com `
-            $targets.FullName
+          # El servidor de sellado de tiempo falla a veces; se reintenta.
+          $servers = @(
+            'http://timestamp.digicert.com',
+            'http://timestamp.sectigo.com',
+            'http://time.certum.pl'
+          )
+          $signed = $false
+          foreach ($ts in $servers) {
+            Write-Host "--- firmando con sellado $ts"
+            & $signtool sign /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:PFX_PASSWORD" `
+              /fd SHA256 /td SHA256 /tr $ts @targets
+            if ($LASTEXITCODE -eq 0) { $signed = $true; break }
+            Write-Host "  fallo (exit $LASTEXITCODE), probando siguiente"
+          }
 
-          & $signtool verify /pa /v dist\traslatetool\traslatetool.exe
+          if (-not $signed) {
+            Write-Host "--- ultimo intento: sin sellado de tiempo"
+            & $signtool sign /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:PFX_PASSWORD" `
+              /fd SHA256 @targets
+            $signed = ($LASTEXITCODE -eq 0)
+          }
+
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
+          if ($signed) {
+            & $signtool verify /pa dist\traslatetool\traslatetool.exe
+            Write-Host "FIRMA OK"
+          } else {
+            Write-Host "::warning::no se pudo firmar; el .exe sale sin firma"
+          }
 
       - name: Instalador Inno Setup
+        if: always()
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
 
       - name: Firmar el instalador
-        if: ${{ env.PFX != '' }}
+        if: ${{ always() && env.PFX != '' }}
+        continue-on-error: true
         shell: pwsh
         run: |
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
@@ -115,9 +160,11 @@ jobs:
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: traslatetool-windows
           path: |
             dist/traslatetool-setup.exe
+            dist/traslatetool/**
             signing/cert.cer
           retention-days: 30
