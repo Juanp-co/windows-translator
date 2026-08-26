@@ -1,0 +1,54 @@
+traslatetool - traductor global ES<->EN, offline, para Windows
+
+
+OPCION 1 - AUTOMATICA (recomendada)
+
+  Clic derecho en INSTALAR.bat  ->  "Ejecutar como administrador"
+
+  Descarga el instalador desde GitHub, importa el certificado de firma
+  e instala. Solo necesita internet durante la instalacion.
+
+  La ventana NO se cierra sola: si algo falla, el error se queda en
+  pantalla. Si eso pasa, copia el mensaje.
+
+
+OPCION 2 - SI LA 1 FALLA
+
+  Abre PowerShell COMO ADMINISTRADOR y pega esta linea:
+
+    irm https://raw.githubusercontent.com/Juanp-co/windows-translator/main/installer/instalar.ps1 | iex
+
+  No depende de esta memoria ni del .bat.
+
+
+OPCION 3 - TODO A MANO
+
+  1) Descargar los dos archivos de:
+       https://github.com/Juanp-co/windows-translator/releases/latest
+  2) PowerShell COMO ADMINISTRADOR, en esa carpeta:
+       Import-Certificate -FilePath .\cert.cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher
+       Import-Certificate -FilePath .\cert.cer -CertStoreLocation Cert:\LocalMachine\Root
+  3) Ejecutar traslatetool-setup.exe
+
+
+ATAJOS (una vez instalado)
+
+  Ctrl+Alt+R   selecciona texto  ->  popup con la traduccion
+  Ctrl+Alt+Y   selecciona texto  ->  lo reemplaza por la traduccion
+
+  Detecta el idioma solo: sirve en ambos sentidos con cualquiera de los dos.
+  Primera traduccion ~2s (carga el modelo en memoria). Siguientes ~0.15s.
+  Despues de instalar funciona sin internet.
+
+  Icono azul en la bandeja, abajo a la derecha. Arranca al iniciar sesion.
+  Para salir: clic derecho en el icono -> Salir.
+
+
+SI ALGO NO VA
+
+  El atajo no hace nada    -> otra app usa esa combinacion. Se cambia en
+                              app/config.py y se recompila.
+  El popup sale vacio      -> no capturo la seleccion; subir COPY_WAIT_S.
+  Reemplaza texto erroneo  -> mismo ajuste de tiempos.
+
+  Codigo: https://github.com/Juanp-co/windows-translator
