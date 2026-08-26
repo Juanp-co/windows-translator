@@ -106,6 +106,12 @@ def main() -> int:
         log.critical(traceback.format_exc())
         return 2
 
+    # --- popup automatico al seleccionar con el raton ------------------------
+    from app import watcher
+    from app.config import AUTO_POPUP
+    watcher.set_enabled(AUTO_POPUP)
+    mouse_listener = watcher.start() if AUTO_POPUP else None
+
     # --- icono de bandeja ---------------------------------------------------
     # No es critico: si falla, la app sigue con los atajos funcionando.
     icon = None
@@ -115,12 +121,24 @@ def main() -> int:
             log.info("salida solicitada desde la bandeja")
             ic.stop()
             hotkeys.stop()
+            if mouse_listener is not None:
+                mouse_listener.stop()
             popup.stop_loop()
+
+        def toggle_auto(ic, item) -> None:
+            watcher.set_enabled(not watcher.is_enabled())
+            ic.update_menu()
 
         icon = pystray.Icon(
             "traslatetool", _icon_image(),
-            "traslatetool | Ctrl+Alt+R popup | Ctrl+Alt+Y reemplazar",
+            f"traslatetool | {HOTKEY_POPUP} popup | {HOTKEY_REPLACE} reemplazar",
             menu=pystray.Menu(
+                pystray.MenuItem(
+                    "Popup automatico al seleccionar",
+                    toggle_auto,
+                    checked=lambda _i: watcher.is_enabled(),
+                ),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Traducir seleccion (popup)", lambda: _run(on_popup, "popup")),
                 pystray.MenuItem("Reemplazar seleccion", lambda: _run(on_replace, "replace")),
                 pystray.MenuItem("Ver log", lambda: __import__("os").startfile(log_path())),

@@ -4,8 +4,27 @@ import sys
 from pathlib import Path
 
 # --- Atajos (formato pynput.keyboard.GlobalHotKeys) -------------------------
-HOTKEY_POPUP = "<ctrl>+<alt>+r"    # inglés seleccionado -> popup en español
-HOTKEY_REPLACE = "<ctrl>+<alt>+y"  # español seleccionado -> reemplaza por inglés
+HOTKEY_POPUP = "<ctrl>+<alt>+r"    # popup manual (respaldo del modo automático)
+
+# OJO: Ctrl+W significa "cerrar pestaña/ventana" en navegadores, editores y
+# el Explorador. pynput NO suprime la pulsación (verificado en su fuente:
+# GlobalHotKeys pasa **kwargs a Listener y no activa supresión), así que la
+# combinación dispara la traducción Y cierra la pestaña. Si eso molesta,
+# "<ctrl>+<alt>+w" se comporta igual y no colisiona con nada.
+HOTKEY_REPLACE = "<ctrl>+w"        # español seleccionado -> reemplaza por inglés
+
+# --- Popup automático -------------------------------------------------------
+# Con esto activo no hace falta pulsar nada: al soltar el ratón tras arrastrar
+# sobre un texto en inglés, sale el popup con la traducción al español.
+#
+# Implica sintetizar Ctrl+C en cada selección, así que hay salvaguardas para
+# que no se dispare a cada momento. Se apaga desde el menú de la bandeja.
+AUTO_POPUP = True
+AUTO_POPUP_MIN_CHARS = 15     # ignora selecciones cortas (clics, una palabra)
+AUTO_POPUP_MIN_WORDS = 3
+AUTO_POPUP_ONLY_ENGLISH = True  # solo cuando el texto detectado es inglés
+AUTO_POPUP_DEBOUNCE_S = 1.5     # tiempo mínimo entre disparos automáticos
+AUTO_POPUP_MIN_DRAG_PX = 12     # por debajo de esto es un clic, no una selección
 
 # --- Rutas ------------------------------------------------------------------
 def _base_dir() -> Path:

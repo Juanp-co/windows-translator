@@ -15,6 +15,18 @@ traducción **100% offline** (sin API, sin cuenta, sin límite).
 **Síntoma exacto:** el usuario instaló, pulsó `Ctrl+Alt+R` sobre texto en el
 Bloc de notas y no ocurrió absolutamente nada. Ni popup, ni error.
 
+## Modo de uso pedido por el usuario
+
+- **Popup EN→ES: automático**, sin pulsar nada. Al soltar el ratón tras
+  arrastrar sobre texto en inglés, sale el popup. Implementado en
+  `app/watcher.py` (listener de ratón: pulsar → arrastrar → soltar → Ctrl+C).
+  `Ctrl+Alt+R` se mantiene como respaldo manual.
+- **Reemplazo ES→EN: `Ctrl+W`.** Pedido explícitamente por el usuario.
+  ⚠️ `Ctrl+W` ya significa "cerrar pestaña" en navegadores y editores, y
+  pynput **no suprime** la pulsación, así que también cerrará la pestaña.
+  Si resulta inviable en la práctica, `<ctrl>+<alt>+w` es el sustituto
+  directo — una línea en `app/config.py`.
+
 ## Por qué existe este fichero
 
 El desarrollo se hizo **desde un Mac**, donde es imposible ejecutar el código:
